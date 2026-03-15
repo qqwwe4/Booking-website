@@ -38,24 +38,53 @@ function renderHome() {
 	const dd = String(today.getDate()).padStart(2, '0');
 	const minDate = `${yyyy}-${mm}-${dd}`;
 	app.innerHTML = `
-		<h1>Поиск гостиницы</h1>
-		<form id="searchForm" class="search-form">
-			<label>Город:
-				<select name="city" required>
-					<option value="">Выберите город</option>
-					<option value="Алматы">Алматы</option>
-					<option value="Астана">Астана</option>
-				</select>
-			</label>
-			<label>Дата заезда:
-				<input type="date" name="checkin" required min="${minDate}">
-			</label>
-			<label>Дата выезда:
-				<input type="date" name="checkout" required min="${minDate}">
-			</label>
-			<button type="submit">Найти</button>
-		</form>
+	<div class="home-hero" style="background-image:url('img/bg.jpg');">
+		<div class="home-hero-overlay">
+			<h1 class="home-title">Бронирование отелей и апартаментов онлайн</h1>
+			<class="home-subtitle">Лучшие предложения для вашего отдыха и командировок в Казахстане.</p>
+			<form id="searchForm" class="search-form home-search-form">
+				<div class="search-row">
+					<div class="search-col search-col-city">
+						<span class="search-icon"><svg width="22" height="22" fill="none" stroke="#222" stroke-width="2" viewBox="0 0 24 24"><path d="M19 10c0 5-7 12-7 12S5 15 5 10a7 7 0 1 1 14 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+						<select name="city" required style="min-width:160px;">
+							<option value="">Выберите город</option>
+							<option value="Алматы">Алматы</option>
+							<option value="Астана">Астана</option>
+						</select>
+					</div>
+					<div class="search-col search-col-dates">
+						<span class="search-icon"><svg width="22" height="22" fill="none" stroke="#222" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="4"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+						<input type="date" name="checkin" id="checkinInput" required min="${minDate}" placeholder="Дата заезда">
+						<span style="margin:0 0.5em;">—</span>
+						<input type="date" name="checkout" id="checkoutInput" required min="${minDate}" placeholder="Дата отъезда">
+					</div>
+					<!-- Гости убраны -->
+					<div class="search-col search-col-btn">
+						<button type="submit" class="search-btn">Найти</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</div>
 	`;
+
+	// Динамически обновлять min для даты выезда
+	const checkinInput = document.getElementById('checkinInput');
+	const checkoutInput = document.getElementById('checkoutInput');
+	checkinInput.addEventListener('change', function() {
+		if (this.value) {
+			const minCheckout = new Date(this.value);
+			minCheckout.setDate(minCheckout.getDate() + 1);
+			const yyyy = minCheckout.getFullYear();
+			const mm = String(minCheckout.getMonth() + 1).padStart(2, '0');
+			const dd = String(minCheckout.getDate()).padStart(2, '0');
+			checkoutInput.min = `${yyyy}-${mm}-${dd}`;
+			checkoutInput.value = '';
+		} else {
+			checkoutInput.min = checkinInput.min;
+			checkoutInput.value = '';
+		}
+	});
 	document.getElementById('searchForm').onsubmit = async function(e) {
 		e.preventDefault();
 		const city = this.city.value;
@@ -65,12 +94,25 @@ function renderHome() {
 			toastr.error('Заполните все поля!');
 			return;
 		}
-		if (checkout <= checkin) {
+		const checkinDate = new Date(checkin + 'T00:00:00');
+		const checkoutDate = new Date(checkout + 'T00:00:00');
+		const today = new Date();
+		today.setHours(0,0,0,0);
+		if (isNaN(checkinDate) || isNaN(checkoutDate)) {
+			toastr.error('Некорректная дата!');
+			return;
+		}
+		if (checkinDate < today) {
+			toastr.error('Дата заезда не может быть в прошлом!');
+			return;
+		}
+		if (checkoutDate <= checkinDate) {
 			toastr.error('Дата выезда должна быть позже даты заезда!');
 			return;
 		}
 		lastSearch = { city, checkin, checkout };
-		window.location.hash = '#searchresults';
+		hotelsPageState.city = city;
+		window.location.hash = '#hotels';
 	};
 }
 
@@ -78,13 +120,56 @@ async function renderSearchResults() {
 	if (!lastSearch) { window.location.hash = '#home'; return; }
 	const hotels = await loadHotels();
 	const filtered = hotels.filter(h => h.city === lastSearch.city);
-	app.innerHTML = `
-		<h1>Доступные отели в городе ${lastSearch.city}</h1>
-		<div class="search-dates">Период: <b>${lastSearch.checkin}</b> — <b>${lastSearch.checkout}</b></div>
-		<div id="searchResults"></div>
-		<button onclick="window.location.hash='#home'">Изменить поиск</button>
-	`;
-	renderHotelCards(filtered, true);
+		// Акционные отели (promo: true)
+		const promoHotels = hotels.filter(h => h.promo);
+		app.innerHTML = `
+				<h1>Доступные отели в городе ${lastSearch.city}</h1>
+				<div class="search-dates">Период: <b>${lastSearch.checkin}</b> — <b>${lastSearch.checkout}</b></div>
+				${promoHotels.length ? `
+				<div class="promo-hotels-slider-block">
+					<h2 style="margin-top:1em;">🔥 Отели с акциями</h2>
+					<div class="promo-hotels-slider" id="promoSlider">
+						<button class="slider-arrow" id="promoPrev">&#8592;</button>
+						<div class="promo-hotels-list" id="promoList">
+							${promoHotels.map(h => `
+								<div class="promo-hotel-card">
+									<div class="hotel-img">${h.image ? `<img src="${h.image}" alt="${h.name}" loading="lazy">` : ''}</div>
+									<div class="hotel-info">
+										<div class="hotel-rating"><span class="hotel-rating-circle">${h.rating?.toFixed(1) ?? ''}</span></div>
+										<h3>${h.name}</h3>
+										<p>${h.description}</p>
+										<div class="hotel-promo-label">Акция!</div>
+										<button onclick="openHotelWithSearch(${h.id})">Подробнее</button>
+									</div>
+								</div>
+							`).join('')}
+						</div>
+						<button class="slider-arrow" id="promoNext">&#8594;</button>
+					</div>
+				</div>
+				` : ''}
+				<div id="searchResults"></div>
+				<button onclick="window.location.hash='#home'">Изменить поиск</button>
+		`;
+		// Слайдер promo
+		if (promoHotels.length > 0) {
+			let promoIndex = 0;
+			const promoList = document.getElementById('promoList');
+			const promoCards = promoList.querySelectorAll('.promo-hotel-card');
+			function updatePromoSlider() {
+				promoCards.forEach((el, i) => {
+					el.style.display = (i >= promoIndex && i < promoIndex+2) ? 'block' : 'none';
+				});
+			}
+			updatePromoSlider();
+			document.getElementById('promoPrev').onclick = () => {
+				if (promoIndex > 0) { promoIndex--; updatePromoSlider(); }
+			};
+			document.getElementById('promoNext').onclick = () => {
+				if (promoIndex < promoCards.length-2) { promoIndex++; updatePromoSlider(); }
+			};
+		}
+		renderHotelCards(filtered, true);
 }
 
 function renderHotelCards(hotels, withSearch) {
@@ -97,12 +182,15 @@ function renderHotelCards(hotels, withSearch) {
 		<div class="hotel-card">
 			<div class="hotel-img">${h.image ? `<img src="${h.image}" alt="${h.name}" loading="lazy">` : ''}</div>
 			<div class="hotel-info">
+				<div class="hotel-rating"><span class="hotel-rating-circle">${h.rating?.toFixed(1) ?? ''}</span></div>
 				<h3>${h.name}</h3>
 				<p>${h.description}</p>
+				<div class="hotel-reviews">${h.reviews ? `${h.reviews.length} отзывов` : 'Нет отзывов'}</div>
 				<button onclick="openHotelWithSearch(${h.id})">Смотреть номера</button>
 			</div>
 		</div>
 	`).join('')}</div>`;
+// Рейтинг теперь только кружочек с числом
 }
 function openHotelWithSearch(id) { window.location.hash = `#hotel-${id}`; }
 
@@ -121,11 +209,11 @@ async function renderHotels() {
 			if (!h.rooms.some(r => r.type === hotelsPageState.roomType)) return false;
 		}
 		// Фильтр по цене
-		if (hotelsPageState.priceMin) {
-			if (!h.rooms.some(r => r.price >= Number(hotelsPageState.priceMin))) return false;
+		if (hotelsPageState.priceMin !== null && hotelsPageState.priceMin !== '' && !isNaN(hotelsPageState.priceMin)) {
+			if (!h.rooms.some(r => typeof r.price === 'number' && r.price >= hotelsPageState.priceMin)) return false;
 		}
-		if (hotelsPageState.priceMax) {
-			if (!h.rooms.some(r => r.price <= Number(hotelsPageState.priceMax))) return false;
+		if (hotelsPageState.priceMax !== null && hotelsPageState.priceMax !== '' && !isNaN(hotelsPageState.priceMax)) {
+			if (!h.rooms.some(r => typeof r.price === 'number' && r.price <= hotelsPageState.priceMax)) return false;
 		}
 		return true;
 	});
@@ -133,12 +221,12 @@ async function renderHotels() {
 	if (hotelsPageState.onlyAvailable) {
 		filtered = filtered.filter(h => h.rooms.some(r => r.available));
 	}
-	// Сортировка по цене (минимальная цена номера)
-	if (hotelsPageState.sort === 'price-asc') {
-		filtered = filtered.slice().sort((a, b) => Math.min(...a.rooms.map(r=>r.price)) - Math.min(...b.rooms.map(r=>r.price)));
-	} else if (hotelsPageState.sort === 'price-desc') {
-		filtered = filtered.slice().sort((a, b) => Math.min(...b.rooms.map(r=>r.price)) - Math.min(...a.rooms.map(r=>r.price)));
-	}
+    // Сортировка по цене (минимальная цена номера)
+    if (hotelsPageState.sort === 'price-asc') {
+        filtered = filtered.slice().sort((a, b) => Math.min(...b.rooms.map(r=>r.price)) - Math.min(...a.rooms.map(r=>r.price)));
+    } else if (hotelsPageState.sort === 'price-desc') {
+        filtered = filtered.slice().sort((a, b) => Math.min(...a.rooms.map(r=>r.price)) - Math.min(...b.rooms.map(r=>r.price)));
+    }
 	// Пагинация
 	const totalPages = Math.max(1, Math.ceil(filtered.length / HOTELS_PER_PAGE));
 	if (hotelsPageState.page > totalPages) hotelsPageState.page = totalPages;
@@ -174,7 +262,7 @@ async function renderHotels() {
 			</label>
 			<label style="align-items:center;gap:0.5em;display:flex;">
 				<input type="checkbox" name="onlyAvailable" ${hotelsPageState.onlyAvailable?'checked':''}>
-				Только с доступными номерами
+				Доступные
 			</label>
 			<label>Сортировка:
 				<select name="sort">
@@ -225,8 +313,10 @@ async function renderHotels() {
 		hotelsPageState.city = this.city.value;
 		hotelsPageState.search = this.search.value;
 		hotelsPageState.roomType = this.roomType.value;
-		hotelsPageState.priceMin = this.priceMin.value;
-		hotelsPageState.priceMax = this.priceMax.value;
+		const min = this.priceMin.value.trim();
+		const max = this.priceMax.value.trim();
+		hotelsPageState.priceMin = min !== '' ? Number(min) : null;
+		hotelsPageState.priceMax = max !== '' ? Number(max) : null;
 		hotelsPageState.onlyAvailable = this.onlyAvailable.checked;
 		hotelsPageState.sort = this.sort.value;
 		hotelsPageState.page = 1;
